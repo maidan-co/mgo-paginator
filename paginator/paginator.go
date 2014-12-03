@@ -14,7 +14,7 @@ Paginator {
 	TypeOfDomain
 }
 paginator.giveResultsFromRequest(URI)
-paginator.paginate("after=505050345").filter(bson.M).limit("50").sort("name").execute()
+paginator.paginate("","").filter(bson.M).limit("50").sort("name").execute(&sampleArray)
 
 
 after=5050505-limit=50
@@ -40,12 +40,10 @@ type paginatedQuery struct {
 
 var FindCriterias []bson.M
 var SortCriteria bson.M
-var SortOrder int
 var Delimiter = "="
 var DelimiterForFilter = ","
 var DefaultLimit = 23
 var DefaultObjectIdFieldName = "Id"
-
 
 func(this *Paginator) GivePaginatedResult(isAfter bool, findId interface{}, limit int, resultModel interface{}) (error) {
 	if limit > 1000 {//to avoid memory leak
@@ -53,10 +51,8 @@ func(this *Paginator) GivePaginatedResult(isAfter bool, findId interface{}, limi
 	}
 	rangeFilter := bson.M{}
 	if isAfter {
-		SortOrder = -1
 		rangeFilter = bson.M{"_id": bson.M{"$lt":findId}}
 	} else {
-		SortOrder = 1
 		rangeFilter = bson.M{"_id": bson.M{"$gt":findId}}
 	}
 	query := this.Collection.Find(rangeFilter).Limit(limit)
@@ -78,15 +74,13 @@ func(this *Paginator) Paginate(afterId string, beforeId string) (*paginatedQuery
 	paginatedQuery.collection = this.Collection
 	rangeFilter := bson.M{}
 	if afterId != "" && beforeId != "" {
-		fmt.Println("Paginate didn't called correctly. Only call it with after or before ID.")
+		fmt.Println("Paginate didn't called correctly. Call it only with after ID or before ID.")
 		return paginatedQuery
 	}
 	if afterId != "" {
-		SortOrder = -1
 		findId := bson.ObjectIdHex(afterId)
 		rangeFilter = bson.M{"_id": bson.M{"$lt":findId}}
 	} else if beforeId != "" {
-		SortOrder = 1
 		findId := bson.ObjectIdHex(beforeId)
 		rangeFilter = bson.M{"_id": bson.M{"$gt":findId}}
 	}
@@ -131,19 +125,12 @@ func(paginatedQuery *paginatedQuery) Select(selectMap bson.M) (*paginatedQuery) 
 	return paginatedQuery
 }
 
-func(paginatedQuery *paginatedQuery) Execute() (resultSet interface {}, beforeId string, afterId string, err error) {
-	modelType := reflect.TypeOf(paginatedQuery.resultModel)
-	sliceTypeOfModal := reflect.SliceOf(modelType)
-	//modelSlice := reflect.MakeSlice(sliceTypeOfModal, 0, 0).Interface()
-
-	v := reflect.New(sliceTypeOfModal)
-	//v.Elem().Set(reflect.ValueOf(modelSlice))
-	resultModelArray := v.Interface()// we resolved sth. like: *[]modelObject
-
+func(paginatedQuery *paginatedQuery) Execute(resultSet interface {}) (beforeId string, afterId string, err error) {
 	paginatedQuery.query = paginatedQuery.collection.Find(paginatedQuery.rangeFilter)
-
+	limit := DefaultLimit
 	if paginatedQuery.limitValue > 0 {
 		paginatedQuery.query = paginatedQuery.query.Limit(paginatedQuery.limitValue)
+		limit = paginatedQuery.limitValue
 	} else {
 		paginatedQuery.query = paginatedQuery.query.Limit(DefaultLimit)
 	}
@@ -158,20 +145,23 @@ func(paginatedQuery *paginatedQuery) Execute() (resultSet interface {}, beforeId
 		paginatedQuery.query = paginatedQuery.query.Select(paginatedQuery.selectValue)
 	}
 
-	err = executeAndBind(paginatedQuery.query, resultModelArray)
+	err = executeAndBind(paginatedQuery.query, resultSet)
 	if err != nil {
-		return nil, "", "", err
+		return "", "", err
 	}
-	actualReflectArray := reflect.ValueOf(resultModelArray).Elem()
+	actualReflectArray := reflect.ValueOf(resultSet).Elem()
 
 	if actualReflectArray.Len() > 1 {
 		lastElem := actualReflectArray.Index(actualReflectArray.Len() - 1)
 		firstElem := actualReflectArray.Index(0)
-		beforeId = firstElem.FieldByName(DefaultObjectIdFieldName).Interface().(bson.ObjectId).Hex()
-		afterId = lastElem.FieldByName(DefaultObjectIdFieldName).Interface().(bson.ObjectId).Hex()
+		if paginatedQuery.rangeFilter["_id"] != nil { //if it's not the beginning of the paginated data
+			beforeId = firstElem.FieldByName(DefaultObjectIdFieldName).Interface().(bson.ObjectId).Hex()
+		}
+		if actualReflectArray.Len() == limit { //if it's not the end of the paginated data
+			afterId = lastElem.FieldByName(DefaultObjectIdFieldName).Interface().(bson.ObjectId).Hex()
+		}
 	}
-	//firstElem :=
-	return actualReflectArray.Interface(), beforeId, afterId, nil//we resolved []modelObject
+	return beforeId, afterId, nil//we resolved []modelObject
 }
 
 
