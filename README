@@ -1,0 +1,5 @@
+# mgo-paginator
+
+The default pagination mechanism of mgo driver lies on skipping and limiting which iterates through all of the collection data.
+
+To be able to improve the performance we have implemented offset based pagination like modern API's does. It sends a query only to the target data.
